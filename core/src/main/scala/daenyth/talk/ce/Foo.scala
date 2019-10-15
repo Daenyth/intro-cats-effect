@@ -1,4 +1,4 @@
-package intro-cats-effect
+package daenyth.talk.ce
 
 sealed trait Foo extends Product with Serializable
 

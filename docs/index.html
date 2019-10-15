@@ -30,9 +30,8 @@
 <body>
   <textarea id="source">
 
-```tut:invisible
 
-```
+
 
 class: center, middle
 
@@ -46,16 +45,19 @@ Gavin Bisesi • `@JulienTruffaut`
 ---
 # Inline Scala examples
 
-```tut:silent
+```scala
 case class Person(name: String, age: Int)
 ```
 
-```tut:book
+```scala
 val john = Person("John", 23)
+// john: Person = Person(John,23)
 
 john.age
+// res0: Int = 23
 
 john.copy(age = 30)
+// res1: Person = Person(John,30)
 ```
 
 ???
@@ -64,15 +66,19 @@ john.copy(age = 30)
 ---
 # Scala examples from core module
 
-```tut:silent
+```scala
 import daenyth.talk.ce.Foo.{FooInt, FooString}
 ```
 
-```tut:book
+```scala
 val fooInt = FooInt(5)
+// fooInt: daenyth.talk.ce.Foo.FooInt = FooInt(5)
+
 val fooString = FooString("Hello World")
+// fooString: daenyth.talk.ce.Foo.FooString = FooString(Hello World)
 
 val foos = List(fooInt, fooString)
+// foos: List[daenyth.talk.ce.Foo] = List(FooInt(5), FooString(Hello World))
 ```
 
 ---
