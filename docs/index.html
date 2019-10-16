@@ -30,75 +30,238 @@
 <body>
   <textarea id="source">
 
-
-
-
 class: center, middle
 
 # Intro to Cats-Effect
-Gavin Bisesi • `@JulienTruffaut`
+Gavin Bisesi • `@Daenyth`
+
+Principal Engineer @ Teikametrics
 
 ???
-- notes here
-- see https://remarkjs.com/#1
+
+Questions at the end
 
 ---
-# Inline Scala examples
+# What is a "Functional side effect" library?
 
-```scala
-case class Person(name: String, age: Int)
-```
+--
 
-```scala
-val john = Person("John", 23)
-// john: Person = Person(John,23)
-
-john.age
-// res0: Int = 23
-
-john.copy(age = 30)
-// res1: Person = Person(John,30)
-```
-
-???
-- see https://github.com/tpolecat/tut
+Programming with "pure functions", aka programming with *Referential Transparency*
 
 ---
-# Scala examples from core module
+# Referential Transparency
+
+--
+
+A property of *expressions* (not statements (`return`) or declarations (`def`, `class`))
+
+--
+
+> The result of any expression can be replaced by its definition without changing the meaning
+
+---
+# Referential Transparency
+> The result of any expression can be replaced by its definition without changing the meaning
 
 ```scala
-import daenyth.talk.ce.Foo.{FooInt, FooString}
+val two = 1 + 1
+// two: Int = 2
+
+two
+// res0: Int = 2
+
+1 + 1
+// res1: Int = 2
 ```
 
+👍
+
+---
+# Referential Transparency
+> The result of any expression can be replaced by its definition without changing the meaning
+
 ```scala
-val fooInt = FooInt(5)
-// fooInt: daenyth.talk.ce.Foo.FooInt = FooInt(5)
+val hello = println("hello")
+// hello
+// hello: Unit = ()
 
-val fooString = FooString("Hello World")
-// fooString: daenyth.talk.ce.Foo.FooString = FooString(Hello World)
+hello
 
-val foos = List(fooInt, fooString)
-// foos: List[daenyth.talk.ce.Foo] = List(FooInt(5), FooString(Hello World))
+println("hello")
+// hello
+```
+
+👎
+
+---
+# Who cares? Why use FP?
+
+Why program with Referential Transparency?
+
+RT means we can:
+- Read code and know what it means and what it does, without reading the rest of the codebase
+- Change existing code without breaking it  
+
+---
+# Who cares? Why use FP?
+
+In other words:
+
+We use FP because we want a codebase that
+- Developers can read and understand
+- Can be changed without breaking things
+
+(among other reasons)
+
+---
+# Some setup
+```scala
+import cats._
+import cats.implicits._
+import cats.effect._
+import cats.effect.implicits._
+import scala.concurrent._
+import scala.concurrent.duration_
+
+import ExecutionContext.Implicits.global
+implicit val CS: ContextShift[IO] = IO.contextShift(global)
+implicit val timer: Timer[IO] = IO.timer(global)
+
+// Avoid this in real code!
+def yolo[A](description: IO[A]) = description.unsafeRunSync()
+
+```
+
+
+
+
+---
+# cats-effect `IO`
+
+A lot like scala `Future` at first glance
+- `apply` to wrap blocks of code
+- `map`, `flatMap`
+- Don't use `Await` with `Future`; don't use `unsafeRun*` with `IO`
+
+```scala
+val rndUUID: IO[UUID] = IO(UUID.randomUUID)
+// rndUUID: cats.effect.IO[java.util.UUID] = IO$300664434
+
+val helloIO = rndUUID.flatMap(uuid => IO(println(s"Hello $uuid")))
+// helloIO: cats.effect.IO[Unit] = IO$1617772240
+
+yolo(helloIO)
+// Hello b132579a-9a3a-48d5-b90a-2d4d00ea6a31
 ```
 
 ---
-class: center, middle
+# `IO[A]` values
 
-# Thanks!
-Code and slides at `daenyth/intro-cats-effect` on GitHub
-
-## Questions?
-
-
+`IO[A]` describes a computation that will:
+- Eventually produce a value of `A`, or
+- Fail with a `Throwable`, or
+- Never complete
 
 
+---
+# `IO` overview - differences from `Future`
 
- </textarea>
-  <script src="remark-latest.min.js">
-  </script>
-  <script>
-    var slideshow = remark.create();
-  </script>
-</body>
+Actions:
+- `IO` is a value that describes an action (possibly asynchronous)
+- `Future` is a handle to the result of an already-running action (possibly asynchronous)
 
-</html>
+---
+# `IO` vs `Future` - Speed
+
+- `IO` is optimized for throughput
+  - Thread shift on demand
+  - Has utilities for introducing manual shifts for fairness
+  - Benchmarks faster for most workloads
+- `Future` is optimized for fairness
+  - Thread shift every single `map`/`flatMap` (hence implicit `ec`)
+  - Can only be configured using a specialized `ec` argument
+
+---
+# `IO` vs `Future` - Cancellation
+
+- `Future[A]` can't be cancelled - once constructed, it can't be stopped
+  - Wasted resources
+- `IO[A]` can be concurrently forked, and then either `join`ed or `cancel`ed  
+  - There are high-level constructs around this in cats-effect
+  - More sophisticated abstractions built on top can be found in other libraries
+
+---
+# `IO` Execution
+
+- Can describe both concurrency and parallelism
+- Uses N:M green-threading
+  - Cheap: thousands of concurrent `Fiber`s are not a problem
+- Nonblocking asynchronous execution
+  - Run as as few as 1 thread (including Scala.JS)
+
+---
+# IO Concurrency
+
+`IO` has low-level concurrency primitives and a selection of high-level constructs using them
+- Forking: `io.start`, `Fiber`
+- Cancellation (low level): `Fiber#cancel`
+- Cancellation (high level): 
+  - `IO.race(first, second)` - concurrently execute, return the winner and cancel the loser,
+  - `io.timeout(duration)` - fails with `TimeoutException` if not complete within `duration`
+  - `io.timeoutTo(duration, fallbackIO)` - Execute `fallbackIO` if `io` is not complete within `duration`
+- Nonblocking asynchronous sleep: `Timer[IO].sleep(duration)`
+- Concurrent execution
+
+---
+# `IO` vs `Future` - Concurrency
+
+- Future has concurrency depending where you invoke functions
+- IO has concurrency via explicit combinators
+
+---
+# `IO` vs `Future` - Concurrency with Future
+```scala
+// Sequential execution
+def jobOne: Future[Int] = Future(???)
+def jobTwo: Future[String] = Future(???)
+
+jobOne.flatMap(i => jobTwo.map(s => (i, s)))
+```
+
+```scala
+// Concurrent execution
+val jobOne: Future[Int] = Future(???)
+val jobTwo: Future[String] = Future(???)
+
+jobOne.flatMap(i => jobTwo.map(s => (i, s)))
+```
+
+---
+# `IO` vs `Future` - Concurrency with Future
+
+
+Does this expression evaluate concurrently or sequentially?
+
+```scala
+jobOne.flatMap(i => jobTwo.map(s => (i, s)))
+```
+
+Impossible to tell - have to read the implementation details
+
+---
+# `IO` vs `Future` - Concurrency with IO
+```scala
+val jobOne: IO[Int] = IO(???)
+val jobTwo: IO[String] = IO(???)
+
+// Sequential execution
+jobOne.flatMap(i => jobTwo.map(s => (i, s)))
+// Concurrent execution (manually)
+for {
+  j1Fiber <- jobOne.start
+  j2Fiber <- jobTwo.start
+  i <- j1Fiber.join
+  s <- j2Fiber.join
+} yield (i, s)
+// Concurrent execution (higher level)
+val result: IO[(Int, String)] = (jobOne, jobTwo).parTupled

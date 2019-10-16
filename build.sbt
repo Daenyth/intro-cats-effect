@@ -1,11 +1,13 @@
 lazy val baseSettings: Seq[Setting[_]] = Seq(
-  scalaVersion       := "2.12.10",
-  scalacOptions     ++= Seq(
+  scalaVersion := "2.12.10",
+  scalacOptions ++= Seq(
     "-deprecation",
-    "-encoding", "UTF-8",
+    "-encoding",
+    "UTF-8",
     "-feature",
     "-language:higherKinds",
-    "-language:implicitConversions", "-language:existentials",
+    "-language:implicitConversions",
+    "-language:existentials",
     "-unchecked",
     "-Yno-adapted-args",
     "-Ywarn-numeric-widen",
@@ -15,7 +17,8 @@ lazy val baseSettings: Seq[Setting[_]] = Seq(
   resolvers += Resolver.sonatypeRepo("releases")
 )
 
-lazy val `intro-cats-effect` = project.in(file("."))
+lazy val `intro-cats-effect` = project
+  .in(file("."))
   .settings(moduleName := "intro-cats-effect")
   .settings(baseSettings: _*)
   .aggregate(core, slides)
@@ -24,7 +27,9 @@ lazy val `intro-cats-effect` = project.in(file("."))
 lazy val core = project
   .settings(moduleName := "intro-cats-effect-core")
   .settings(baseSettings: _*)
-
+  .settings(
+    libraryDependencies ++= Seq("org.typelevel" %% "cats-effect" % "2.0.0")
+  )
 
 lazy val slides = project
   .settings(moduleName := "intro-cats-effect-slides")
@@ -33,5 +38,6 @@ lazy val slides = project
     tutSourceDirectory := baseDirectory.value / "tut",
     tutTargetDirectory := baseDirectory.value / "../docs",
     watchSources ++= (tutSourceDirectory.value ** "*.html").get
-  ).dependsOn(core)
+  )
+  .dependsOn(core)
   .enablePlugins(TutPlugin)

@@ -30,50 +30,280 @@
 <body>
   <textarea id="source">
 
-```tut:invisible
-
-```
-
 class: center, middle
 
 # Intro to Cats-Effect
-Gavin Bisesi • `@JulienTruffaut`
+Gavin Bisesi • `@Daenyth`
+
+Principal Engineer @ Teikametrics
 
 ???
-- notes here
-- see https://remarkjs.com/#1
+
+Questions at the end
 
 ---
-# Inline Scala examples
+# What is a "Functional side effect" library?
 
-```tut:silent
-case class Person(name: String, age: Int)
-```
+--
 
-```tut:book
-val john = Person("John", 23)
-
-john.age
-
-john.copy(age = 30)
-```
-
-???
-- see https://github.com/tpolecat/tut
+Programming with "pure functions", aka programming with *Referential Transparency*
 
 ---
-# Scala examples from core module
+# Referential Transparency
 
-```tut:silent
-import daenyth.talk.ce.Foo.{FooInt, FooString}
-```
+--
+
+A property of *expressions* (not statements (`return`) or declarations (`def`, `class`))
+
+--
+
+> The result of any expression can be replaced by its definition without changing the meaning
+
+---
+# Referential Transparency
+> The result of any expression can be replaced by its definition without changing the meaning
 
 ```tut:book
-val fooInt = FooInt(5)
-val fooString = FooString("Hello World")
+val two = 1 + 1
 
-val foos = List(fooInt, fooString)
+two
+1 + 1
+
 ```
+
+👍
+
+---
+# Referential Transparency
+> The result of any expression can be replaced by its definition without changing the meaning
+
+```tut:book
+val hello = println("hello")
+
+hello
+println("hello")
+
+```
+
+👎
+
+---
+# Who cares? Why use FP?
+
+Why program with Referential Transparency?
+
+RT means we can:
+- Read code and know what it means and what it does, without reading the rest of the codebase
+- Change existing code without breaking it  
+
+---
+# Who cares? Why use FP?
+
+In other words:
+
+We use FP because we want a codebase that
+- Developers can read and understand
+- Can be changed without breaking things
+
+(among other reasons)
+
+---
+# Some setup
+```tut:silent
+import cats._
+import cats.implicits._
+import cats.effect._
+import cats.effect.implicits._
+import scala.concurrent._
+import scala.concurrent.duration._
+
+import ExecutionContext.Implicits.global
+implicit val CS: ContextShift[IO] = IO.contextShift(global)
+implicit val timer: Timer[IO] = IO.timer(global)
+
+// Avoid this in real code!
+def yolo[A](description: IO[A]) = description.unsafeRunSync()
+
+```
+
+```tut:invisible
+import java.util.UUID
+```
+
+---
+# cats-effect `IO`
+
+A lot like scala `Future` at first glance
+- `apply` to wrap blocks of code
+- `map`, `flatMap`
+- Don't use `Await` with `Future`; don't use `unsafeRun*` with `IO`
+
+```tut:book
+val rndUUID: IO[UUID] = IO(UUID.randomUUID)
+val helloIO = rndUUID.flatMap(uuid => IO(println(s"Hello $uuid")))
+
+yolo(helloIO)
+```
+
+---
+# `IO[A]` values
+
+`IO[A]` describes a computation that will:
+- Eventually produce a value of `A`, or
+- Fail with a `Throwable`, or
+- Never complete
+
+
+---
+# `IO` overview - differences from `Future`
+
+Actions:
+- `IO` is a value that describes an action (possibly asynchronous)
+- `Future` is a handle to the result of an already-running action (possibly asynchronous)
+
+---
+# `IO` vs `Future` - Speed
+
+- `IO` is optimized for throughput
+  - Thread shift on demand
+  - Has utilities for introducing manual shifts for fairness
+  - Benchmarks faster for most workloads
+- `Future` is optimized for fairness
+  - Thread shift every single `map`/`flatMap` (hence implicit `ec`)
+  - Can only be configured using a specialized `ec` argument
+
+---
+# `IO` vs `Future` - Cancellation
+
+- `Future[A]` can't be cancelled - once constructed, it can't be stopped
+  - Wasted resources
+- `IO[A]` can be concurrently forked, and then either `join`ed or `cancel`ed  
+  - There are high-level constructs around this in cats-effect
+  - More sophisticated abstractions built on top can be found in other libraries
+
+---
+# `IO` Execution
+
+- Can describe both concurrency and parallelism
+- Uses N:M green-threading
+  - Cheap: thousands of concurrent `Fiber`s are not a problem
+- Nonblocking asynchronous execution
+  - Run as as few as 1 thread (including Scala.JS)
+
+---
+# IO Concurrency
+
+`IO` has low-level concurrency primitives and a selection of high-level constructs using them
+- Forking: `io.start`, `Fiber`
+- Cancellation (low level): `Fiber#cancel`
+- Cancellation (high level): 
+  - `IO.race(first, second)` - concurrently execute, return the winner and cancel the loser,
+  - `io.timeout(duration)` - fails with `TimeoutException` if not complete within `duration`
+  - `io.timeoutTo(duration, fallbackIO)` - Execute `fallbackIO` if `io` is not complete within `duration`
+- Nonblocking asynchronous sleep: `Timer[IO].sleep(duration)`
+- Concurrent execution
+
+---
+# `IO` vs `Future` - Concurrency
+
+- Future has concurrency depending where you invoke functions
+- IO has concurrency via explicit combinators
+
+---
+# `IO` vs `Future` - Concurrency with Future
+```tut:silent
+// Sequential execution
+def jobOne: Future[Int] = Future(???)
+def jobTwo: Future[String] = Future(???)
+
+jobOne.flatMap(i => jobTwo.map(s => (i, s)))
+```
+
+```tut:silent
+// Concurrent execution
+val jobOne: Future[Int] = Future(???)
+val jobTwo: Future[String] = Future(???)
+
+jobOne.flatMap(i => jobTwo.map(s => (i, s)))
+```
+
+---
+# `IO` vs `Future` - Concurrency with Future
+
+
+Does this expression evaluate concurrently or sequentially?
+
+```tut:silent
+jobOne.flatMap(i => jobTwo.map(s => (i, s)))
+```
+
+Impossible to tell - have to read the implementation details
+
+---
+# `IO` vs `Future` - Concurrency with IO
+```tut:silent
+val jobOne: IO[Int] = IO(???)
+val jobTwo: IO[String] = IO(???)
+
+// Sequential execution
+jobOne.flatMap(i => jobTwo.map(s => (i, s)))
+// Concurrent execution (manually)
+for {
+  j1Fiber <- jobOne.start
+  j2Fiber <- jobTwo.start
+  i <- j1Fiber.join
+  s <- j2Fiber.join
+} yield (i, s)
+// Concurrent execution (higher level)
+val result: IO[(Int, String)] = (jobOne, jobTwo).parTupled
+
+```
+
+---
+# Resource management
+
+`Resource[IO, A]` describes the ability to initialize and release a resource
+- Similar to `try`/`finally`, but composable and RT
+- Allows tracking resource lifetime at the type level
+
+---
+# A tour of cats-effect:
+
+Thread pools, controlling where and when things execute
+ContextShift, Blocker, Timer
+
+---
+# Thread pool management
+
+2 (or 3) pool model
+- Fixed size pool for cpu work
+ - Used by `ContextShift[IO]`
+- Cached thread pool for thread-blocking work
+ - Wrapped with `Blocker` for explicit use
+- High-priority pool for scheduling and timers
+ - Used by `Timer` to schedule sleeps
+
+---
+# Blocking threads
+
+Blocking threads should be avoided
+- Your cpu core is doing no work, waiting for a result while it could be computing something else
+- It reduces your bandwidth for concurrent work
+- It can cause deadlocks even without parallelism
+
+`Blocker` is a thin newtype around `ExecutionContext`
+
+Used to clearly mark thread-blocking code in type signatures and prevent accidentally using the wrong thread pool
+```tut:silent
+val blocker = Blocker.liftExecutionContext(global)
+```
+
+---
+# Links and resources
+
+- [Gitter chat](http://gitter.im/typelevel/cats-effect)
+- [Documentation](https://typelevel.org/cats-effect/)
+
 
 ---
 class: center, middle
