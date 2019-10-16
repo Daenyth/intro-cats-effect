@@ -11,6 +11,7 @@
 
     body {
       font-family: 'Droid Serif', 'Helvetica';
+      /*line-height: 1.25em;*/
     }
 
     h1,
@@ -121,7 +122,7 @@ import cats.implicits._
 import cats.effect._
 import cats.effect.implicits._
 import scala.concurrent._
-import scala.concurrent.duration_
+import scala.concurrent.duration._
 
 import ExecutionContext.Implicits.global
 implicit val CS: ContextShift[IO] = IO.contextShift(global)
@@ -145,13 +146,13 @@ A lot like scala `Future` at first glance
 
 ```scala
 val rndUUID: IO[UUID] = IO(UUID.randomUUID)
-// rndUUID: cats.effect.IO[java.util.UUID] = IO$300664434
+// rndUUID: cats.effect.IO[java.util.UUID] = IO$879348450
 
 val helloIO = rndUUID.flatMap(uuid => IO(println(s"Hello $uuid")))
-// helloIO: cats.effect.IO[Unit] = IO$1617772240
+// helloIO: cats.effect.IO[Unit] = IO$941755466
 
 yolo(helloIO)
-// Hello b132579a-9a3a-48d5-b90a-2d4d00ea6a31
+// Hello 907df294-6c49-4719-8fbe-972c2e580068
 ```
 
 ---
@@ -164,7 +165,12 @@ yolo(helloIO)
 
 
 ---
-# `IO` overview - differences from `Future`
+# cats-effect typeclasses
+
+// TODO insert graphic
+
+---
+# `IO` vs `Future` - Overview
 
 Actions:
 - `IO` is a value that describes an action (possibly asynchronous)
@@ -202,7 +208,7 @@ Actions:
 ---
 # IO Concurrency
 
-`IO` has low-level concurrency primitives and a selection of high-level constructs using them
+Both low-level `Fibers` and high-level combinators
 - Forking: `io.start`, `Fiber`
 - Cancellation (low level): `Fiber#cancel`
 - Cancellation (high level): 
@@ -210,7 +216,7 @@ Actions:
   - `io.timeout(duration)` - fails with `TimeoutException` if not complete within `duration`
   - `io.timeoutTo(duration, fallbackIO)` - Execute `fallbackIO` if `io` is not complete within `duration`
 - Nonblocking asynchronous sleep: `Timer[IO].sleep(duration)`
-- Concurrent execution
+- Concurrent execution: `start`, `listOfIO.parSequence`, `(ioA, ioB).parTupled`
 
 ---
 # `IO` vs `Future` - Concurrency
@@ -250,6 +256,7 @@ Impossible to tell - have to read the implementation details
 
 ---
 # `IO` vs `Future` - Concurrency with IO
+
 ```scala
 val jobOne: IO[Int] = IO(???)
 val jobTwo: IO[String] = IO(???)
@@ -265,3 +272,198 @@ for {
 } yield (i, s)
 // Concurrent execution (higher level)
 val result: IO[(Int, String)] = (jobOne, jobTwo).parTupled
+
+```
+
+---
+# Resource management
+
+`Resource[IO, A]` describes the ability to initialize and release a resource
+- Similar to `try`/`finally`, but composable and RT
+- Allows tracking resource lifetime at the type level
+  - Function accepting `Resource[IO, A]` parameter will acquire and release internally
+  - Function accepting `A` reuses the live value
+- Allows *guaranteed* finalization
+  - Whether the function given to `use` completes, fails, or is cancelled, the Resource is closed. Will not leak.
+
+---
+# A tour of cats-effect:
+
+Thread pools, controlling where and when things execute
+ContextShift, Blocker, Timer
+
+---
+# Thread pool management
+
+// Steal the graphic from CE docs
+
+2 (or 3) pool model
+- Fixed size pool for cpu work
+ - Used by `ContextShift[IO]`
+- Cached thread pool for thread-blocking work
+ - Wrapped with `Blocker` for explicit use
+- High-priority pool for scheduling and timers
+ - Used by `Timer` to schedule sleeps
+
+---
+# Blocking threads
+
+Blocking threads should be avoided
+- Your cpu core is doing no work, waiting for a result while it could be computing something else
+- It reduces your bandwidth for concurrent work
+
+`Blocker` is a thin newtype around `ExecutionContext`
+
+Used to clearly mark thread-blocking code in type signatures and prevent accidentally using the wrong thread pool
+```scala
+val blocker = Blocker.liftExecutionContext(global)
+val fos: java.io.FileOutputStream = ???
+val bytes: Array[Byte] = ???
+val writeFile: IO[Unit] = blocker.blockOn(IO(fos.write(bytes)))
+```
+
+---
+# Time
+
+`Timer` and `Clock`
+ - Nonblocking async sleep: `Timer[IO].sleep(duration)`
+ - Get the time: `Clock[IO].realTime(MILLISECONDS)`
+   - `Clock` comes from `Timer`; `timer.clock` or via implicit `Clock[IO]`
+
+
+---
+# Applications
+
+`IOApp` for your "main" classes
+- Provides an appropriate `ContextShift` and `Timer` for you
+
+```scala
+object MyMain extends IOApp {
+  def run(args: List[String]): IO[ExitCode] = {
+    val myAppResource = 
+      for {
+        _ <- Resource.liftF(IO(println("hello cats")))
+        db <- getDatabase
+        blocker <- Blocker[IO]
+        result <- Resource.liftF(myAppLogic(db, blocker))
+        _ <- Resource.liftF(IO(println(s"got $result")))
+      } yield ()
+    
+      myAppResource.use(_ => IO.pure(ExitCode.Success))
+    }
+
+
+  def getDatabase: Resource[IO, Database] = ???
+  def myAppLogic(db: Database, blocker: Blocker): IO[Int] = ???
+} 
+```
+
+---
+# I already have an application!
+
+`IO` can be introduced to a codebase using `Future` or using its own "main" class.
+
+---
+# Calling `Future` from `IO`
+
+```scala
+def existingLogic(x: Int): Future[Int] = ???
+def moreLogic(y: Int): IO[Int] =
+  for {
+    xResult <- IO.fromFuture(IO(existingLogic(42))) 
+  } yield xResult + y
+```
+
+---
+
+# Calling `IO` from `Future`
+
+```scala
+trait MyTrait { def doWork: Future[Int] }
+
+new MyTrait {
+  override def doWork: Future[Int] =
+  ioLogic.map(_.length).unsafeToFuture()
+  
+  def ioLogic: IO[String] = ???
+}
+```
+
+---
+# Converting to IO - Sequential imperative
+
+Sequential code:
+- Replace `;` with `flatMap`
+
+```scala
+
+// Imperative
+def oneStep(): Unit = println("one")
+def anotherStep(): Unit = println("two")
+
+oneStep()
+anotherStep()
+
+// IO
+def oneStep(): IO[Unit] = IO(println("one"))
+def anotherStep(): IO[Unit] = IO(println("two"))
+
+for {
+  _ <- oneStep()
+  _ <- anotherStep()
+} yield ()
+```
+
+---
+# Converting to `IO` - `Future` code
+
+- `Future.successful` -> `IO.pure`
+- `Future.failed` -> `IO.raiseError`
+- Implicit `Future` concurrency -> Explicit concurrency combinators
+- Side effects in `map` -> explicit effects with `IO(sideEffect())` + `flatMap`
+  - This is crucial
+  - Turn on the warn-value-discard
+- Imperative init/close methods -> `Resource`
+
+---
+# Converting to `IO` - Easy errors
+- Side effects not wrapped `IO`, eg in `map`
+- `warn-value-discard`
+- Implicit `Future` concurrency
+
+---
+# Converting to `IO` - Application structure
+- Semantic interfaces
+- New code in `IO`
+- Interop where needed
+- Convert one class at a time
+
+---
+# Links and resources
+
+- [Tutorial](https://typelevel.org/cats-effect/tutorial/tutorial.html)
+- typelevel/cats-effect [Gitter chat](http://gitter.im/typelevel/cats-effect)
+- [Documentation](https://typelevel.org/cats-effect/)
+
+
+---
+class: center, middle
+
+# Thanks!
+Code and slides at `daenyth/intro-cats-effect` on GitHub
+
+## Questions?
+
+
+
+
+
+ </textarea>
+  <script src="remark-latest.min.js">
+  </script>
+  <script>
+    var slideshow = remark.create();
+  </script>
+</body>
+
+</html>
