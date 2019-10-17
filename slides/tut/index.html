@@ -14,11 +14,21 @@
       /*line-height: 1.25em;*/
     }
 
+    li {
+      margin: 10px 0;
+    }
+
     h1,
     h2,
     h3 {
       font-family: 'Yanone Kaffeesatz', 'Gill Sans';
       font-weight: normal;
+    }
+
+    img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
     }
 
     .remark-code,
@@ -109,6 +119,13 @@ We use FP because we want a codebase that
 (among other reasons)
 
 ---
+# Functional Programming - Combinators
+
+*Combinators* are composable building block functions that modify some input in a reusable way
+- `map`
+- `filter`
+
+---
 # Some setup
 ```tut:silent
 import cats._
@@ -159,7 +176,14 @@ yolo(helloIO)
 ---
 # cats-effect typeclasses
 
-// TODO insert graphic
+All the capabilities that `IO` exposes are described by typeclasses, allowing more generic code and multi-library compatibility.
+
+This talk focus on `IO` and not the typeclasses
+
+---
+# cats-effect typeclasses
+
+<img src="typeclasses-cheat-sheet.png">
 
 ---
 # `IO` vs `Future` - Overview
@@ -255,6 +279,9 @@ val jobTwo: IO[String] = IO(???)
 
 // Sequential execution
 jobOne.flatMap(i => jobTwo.map(s => (i, s)))
+// Also Sequential
+val result: IO[(Int, String)] = (jobOne, jobTwo).tupled
+
 // Concurrent execution (manually)
 for {
   j1Fiber <- jobOne.start
@@ -262,6 +289,7 @@ for {
   i <- j1Fiber.join
   s <- j2Fiber.join
 } yield (i, s)
+
 // Concurrent execution (higher level)
 val result: IO[(Int, String)] = (jobOne, jobTwo).parTupled
 
@@ -271,7 +299,8 @@ val result: IO[(Int, String)] = (jobOne, jobTwo).parTupled
 # Resource management
 
 `Resource[IO, A]` describes the ability to initialize and release a resource
-- Similar to `try`/`finally`, but composable and RT
+- Similar to `try`/`finally`, but composable and referentially transparent
+  - `catch`/`finally` aren't transparent - they don't talk about *return values*.
 - Allows tracking resource lifetime at the type level
   - Function accepting `Resource[IO, A]` parameter will acquire and release internally
   - Function accepting `A` reuses the live value
@@ -281,21 +310,33 @@ val result: IO[(Int, String)] = (jobOne, jobTwo).parTupled
 ---
 # A tour of cats-effect:
 
-Thread pools, controlling where and when things execute
-ContextShift, Blocker, Timer
+- Utilities around Thread pools, controlling where and when things execute
+  - ContextShift - A "pure" ExecutionContext parallel
+  - Blocker - Used together with ContextShift to handle thread-blocking work.
+  - Timer - Get the time, delay execution until a time
+- Concurrency primitives
+  - Semaphore - Has `N` permits, can acquire or release permits as needed. Acquire blocks until permits are available
+  - Ref - Lock-free concurrency-safe mutable shared memory
+  - Deferred - A pure promise. Can complete with a value or get the completed value. Get blocks until complete.
+- `IOApp` - Whole "pure" applications
+
 
 ---
 # Thread pool management
 
-// Steal the graphic from CE docs
+<img src="concurrency-thread-pools.png">
 
-2 (or 3) pool model
-- Fixed size pool for cpu work
+---
+# Thread pool management
+
+3 pool model
+- Computation: Fixed size pool for cpu work
  - Used by `ContextShift[IO]`
-- Cached thread pool for thread-blocking work
- - Wrapped with `Blocker` for explicit use
-- High-priority pool for scheduling and timers
+- Blocking IO: Cached thread pool for thread-blocking work
+ - Wrapped with `Blocker` for explicit use 
+- Event Dispatcher: High-priority pool for scheduling and timers
  - Used by `Timer` to schedule sleeps
+ - While transitioning away from `Futures` toward `IO`, we used the Computation pool (2 pool setup)
 
 ---
 # Blocking threads
@@ -414,21 +455,43 @@ for {
 - Implicit `Future` concurrency -> Explicit concurrency combinators
 - Side effects in `map` -> explicit effects with `IO(sideEffect())` + `flatMap`
   - This is crucial
-  - Turn on the warn-value-discard
 - Imperative init/close methods -> `Resource`
 
 ---
-# Converting to `IO` - Easy errors
+# Converting to `IO` - general tips
+- Sometimes you'll want to `import cats.implicits._` for generic combinators (eg `tupled`, `handleError`)
+- Sometimes you'll want `import cats.effect.implicits._` for effect methods (eg `parSequence`, `parTupled`, `parMapN`)
+- `IO` concurrency requires `ContextShift[IO]` implicit
+  - `IOApp` gives you one for free, otherwise `IO.contextShift(computeEC)`
+- Time-based methods including sleep require `Timer[IO]` implicit
+  - `IOApp` gives you one for free, otherwise `IO.timer(eventDispatcherEC)` (if you have one) or `IO.timer(computeEC)` if you don't
+- Try not to use a fork-join pool for `ContextShift` - you're leaving performance on the table by creating too many threads  
+- Understand the risks when using `.unsafe*` methods on `IO`
+
+---
+# Converting to `IO` - Common errors
 - Side effects not wrapped `IO`, eg in `map`
-- `warn-value-discard`
 - Implicit `Future` concurrency
+- Use `-Ywarn-value-discard`!
+  - Optionally, set a lot of "save me from myself" flags at once using `sbt-tpolecat`
 
 ---
 # Converting to `IO` - Application structure
-- Semantic interfaces
+- Semantic interfaces, not mechanical ones
 - New code in `IO`
 - Interop where needed
 - Convert one class at a time
+  - You don't need to convert the whole project!
+  - Stop whenever you reach "good enough"
+  - Update code sections when you need to; if it's not broken and isn't being modified, leave it
+
+---
+# Cats-Effect
+
+- Write code that doesn't break when you change it
+- Write reusable code that you know won't surprise you
+- Write code that can be understood in isolation
+- Gain access to an ecosystem of compatible, efficient, and easy to learn libraries
 
 ---
 # Links and resources
@@ -436,6 +499,12 @@ for {
 - [Tutorial](https://typelevel.org/cats-effect/tutorial/tutorial.html)
 - typelevel/cats-effect [Gitter chat](http://gitter.im/typelevel/cats-effect)
 - [Documentation](https://typelevel.org/cats-effect/)
+- [Functional and Reactive Domain Modeling](https://www.manning.com/books/functional-and-reactive-domain-modeling)
+  - Book that goes into application design, in a style that meshes very cleanly with cats-effect
+- [Referential Transparency in the Wild](https://impurepics.com/posts/2018-07-13-referential-transparency-wild.html)
+- [Shared State in Functional Programming](https://typelevel.org/blog/2018/06/07/shared-state-in-fp.html) - More examples around `Resource` usage and simpler data sharing examples
+- [@impurepics](https://impurepics.com) is the author+owner of the graphics
+    
 
 
 ---
