@@ -163,13 +163,13 @@ A lot like scala `Future` at first glance
 
 ```scala
 val rndUUID: IO[UUID] = IO(UUID.randomUUID)
-// rndUUID: cats.effect.IO[java.util.UUID] = IO$1628718237
+// rndUUID: cats.effect.IO[java.util.UUID] = IO$679161252
 
 val helloIO = rndUUID.flatMap(uuid => IO(println(s"Hello $uuid")))
-// helloIO: cats.effect.IO[Unit] = IO$454719704
+// helloIO: cats.effect.IO[Unit] = IO$619472405
 
 yolo(helloIO)
-// Hello 77716372-9da5-4c32-b8d0-f671aca0763e
+// Hello 4eec1464-68fd-4ac0-a81e-22cfb865240b
 ```
 
 ---
@@ -335,9 +335,18 @@ val result: IO[(Int, String)] = (jobOne, jobTwo).parTupled
 <img src="concurrency-thread-pools.png">
 
 ---
-# Thread pool management
+# Thread pool management - `ExecutionContext.global`
 
-3 pool model
+`global` isn't an ideal choice.
+- Designed for mixed cpu + blocking-io work in a single pool
+- Optimal for neither
+- CPU-bound work suffers in performance from cpu context shifting; `global` creates more threads than cpu cores
+- I/O-bound work can preempt cpu-bound work if `global` decides not to make a new Thread
+- This applies for all fork-join pools - even if you don't use cats-effect.
+
+---
+# Thread pool management - 3 Pool Model
+
 - Computation: Fixed size pool for cpu work
  - Used by `ContextShift[IO]`
 - Blocking IO: Cached thread pool for thread-blocking work
