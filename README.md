@@ -1,5 +1,11 @@
 # Intro to Cats-Effect
 
+## Slides
+
+[Available online](https://daenyth.github.io/intro-cats-effect/)
+
+## Building
+
 Code in `core` module is accessible in your slides
 
 Raw slides are in `slides/tut/index.html`
