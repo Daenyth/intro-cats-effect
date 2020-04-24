@@ -4,6 +4,10 @@
 
 [Available online](https://daenyth.github.io/intro-cats-effect/)
 
+## Video recording
+
+[On YouTube](https://www.youtube.com/watch?v=83pXEdCpY4A)
+
 ## Building
 
 Code in `core` module is accessible in your slides
