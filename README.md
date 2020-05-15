@@ -1,5 +1,9 @@
 # Intro to Cats-Effect
 
+Cats Effect is a functional side effect library - I'll explain what that means, what it gives you, how to use it, and why you should care.
+
+At Teikametrics we adopted this library in 2018, and I'll discuss how we approach application design using it, both from a green field perspective as well as the techniques we used to migrate a living codebase away from akka-streams without "the big rewrite".
+
 ## Slides
 
 [Available online](https://daenyth.github.io/intro-cats-effect/)
