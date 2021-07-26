@@ -1,5 +1,5 @@
 lazy val baseSettings: Seq[Setting[_]] = Seq(
-  scalaVersion := "2.12.10",
+  scalaVersion := "2.12.14",
   scalacOptions ++= Seq(
     "-deprecation",
     "-encoding",
@@ -35,9 +35,9 @@ lazy val slides = project
   .settings(moduleName := "intro-cats-effect-slides")
   .settings(baseSettings: _*)
   .settings(
-    tutSourceDirectory := baseDirectory.value / "tut",
-    tutTargetDirectory := baseDirectory.value / "../docs",
-    watchSources ++= (tutSourceDirectory.value ** "*.html").get
+    mdocIn := baseDirectory.value / "mdoc",
+    mdocOut := baseDirectory.value / "../docs",
+    watchSources ++= (mdocIn.value ** "*.html").get
   )
   .dependsOn(core)
-  .enablePlugins(TutPlugin)
+  .enablePlugins(MdocPlugin)

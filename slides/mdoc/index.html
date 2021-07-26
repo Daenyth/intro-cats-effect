@@ -74,7 +74,7 @@ A property of *expressions* (not statements (`return`) or declarations (`def`, `
 # Referential Transparency
 > The result of any expression can be replaced by its definition without changing the meaning
 
-```tut:book
+```scala mdoc
 val two = 1 + 1
 
 two
@@ -88,7 +88,7 @@ two
 # Referential Transparency
 > The result of any expression can be replaced by its definition without changing the meaning
 
-```tut:book
+```scala mdoc
 val hello = println("hello")
 
 hello
@@ -127,7 +127,7 @@ We use FP because we want a codebase that
 
 ---
 # Some setup
-```tut:silent
+```scala mdoc:silent
 import cats._
 import cats.implicits._
 import cats.effect._
@@ -144,7 +144,7 @@ def yolo[A](description: IO[A]) = description.unsafeRunSync()
 
 ```
 
-```tut:invisible
+```scala mdoc:invisible
 import java.util.UUID
 trait Database
 ```
@@ -157,7 +157,7 @@ A lot like scala `Future` at first glance
 - `map`, `flatMap`
 - Don't use `Await` with `Future`; don't use `unsafeRun*` with `IO`
 
-```tut:book
+```scala mdoc
 val rndUUID: IO[UUID] = IO(UUID.randomUUID)
 val helloIO = rndUUID.flatMap(uuid => IO(println(s"Hello $uuid")))
 
@@ -242,7 +242,7 @@ Both low-level `Fibers` and high-level combinators
 
 ---
 # `IO` vs `Future` - Concurrency with Future
-```tut:silent
+```scala mdoc:silent:nest
 // Sequential execution
 def jobOne: Future[Int] = Future(???)
 def jobTwo: Future[String] = Future(???)
@@ -250,7 +250,7 @@ def jobTwo: Future[String] = Future(???)
 jobOne.flatMap(i => jobTwo.map(s => (i, s)))
 ```
 
-```tut:silent
+```scala mdoc:silent:nest
 // Concurrent execution
 val jobOne: Future[Int] = Future(???)
 val jobTwo: Future[String] = Future(???)
@@ -264,7 +264,7 @@ jobOne.flatMap(i => jobTwo.map(s => (i, s)))
 
 Does this expression evaluate concurrently or sequentially?
 
-```tut:silent
+```scala mdoc:silent
 jobOne.flatMap(i => jobTwo.map(s => (i, s)))
 ```
 
@@ -273,14 +273,14 @@ Impossible to tell - have to read the implementation details
 ---
 # `IO` vs `Future` - Concurrency with IO
 
-```tut:silent
+```scala mdoc:silent:nest
 val jobOne: IO[Int] = IO(???)
 val jobTwo: IO[String] = IO(???)
 
 // Sequential execution
 jobOne.flatMap(i => jobTwo.map(s => (i, s)))
 // Also Sequential
-val result: IO[(Int, String)] = (jobOne, jobTwo).tupled
+val result1: IO[(Int, String)] = (jobOne, jobTwo).tupled
 
 // Concurrent execution (manually)
 for {
@@ -291,7 +291,7 @@ for {
 } yield (i, s)
 
 // Concurrent execution (higher level)
-val result: IO[(Int, String)] = (jobOne, jobTwo).parTupled
+val result2: IO[(Int, String)] = (jobOne, jobTwo).parTupled
 
 ```
 
@@ -379,7 +379,7 @@ val writeFile: IO[Unit] = blocker.blockOn(IO(fos.write(bytes)))
 `IOApp` for your "main" classes
 - Provides an appropriate `ContextShift` and `Timer` for you
 
-```tut:silent
+```scala mdoc:silent
 object MyMain extends IOApp {
   def run(args: List[String]): IO[ExitCode] = {
     val myAppResource = 
@@ -408,7 +408,7 @@ object MyMain extends IOApp {
 ---
 # Calling `Future` from `IO`
 
-```tut:silent
+```scala mdoc:silent
 def existingLogic(x: Int): Future[Int] = ???
 def moreLogic(y: Int): IO[Int] =
   for {
@@ -420,7 +420,7 @@ def moreLogic(y: Int): IO[Int] =
 
 # Calling `IO` from `Future`
 
-```tut:silent
+```scala mdoc:silent
 trait MyTrait { def doWork: Future[Int] }
 
 new MyTrait {
@@ -437,7 +437,7 @@ new MyTrait {
 Sequential code:
 - Replace `;` with `flatMap`
 
-```tut:silent
+```scala mdoc:silent:nest
 
 // Imperative
 def oneStep(): Unit = println("one")
@@ -447,12 +447,12 @@ oneStep()
 anotherStep()
 
 // IO
-def oneStep(): IO[Unit] = IO(println("one"))
-def anotherStep(): IO[Unit] = IO(println("two"))
+def oneStepIO(): IO[Unit] = IO(println("one"))
+def anotherStepIO(): IO[Unit] = IO(println("two"))
 
 for {
-  _ <- oneStep()
-  _ <- anotherStep()
+  _ <- oneStepIO()
+  _ <- anotherStepIO()
 } yield ()
 ```
 

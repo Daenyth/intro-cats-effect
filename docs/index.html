@@ -80,7 +80,6 @@ val two = 1 + 1
 
 two
 // res0: Int = 2
-
 1 + 1
 // res1: Int = 2
 ```
@@ -94,10 +93,8 @@ two
 ```scala
 val hello = println("hello")
 // hello
-// hello: Unit = ()
 
 hello
-
 println("hello")
 // hello
 ```
@@ -151,8 +148,6 @@ def yolo[A](description: IO[A]) = description.unsafeRunSync()
 ```
 
 
-
-
 ---
 # cats-effect `IO`
 
@@ -163,13 +158,12 @@ A lot like scala `Future` at first glance
 
 ```scala
 val rndUUID: IO[UUID] = IO(UUID.randomUUID)
-// rndUUID: cats.effect.IO[java.util.UUID] = IO$679161252
-
+// rndUUID: IO[UUID] = Delay(<function0>)
 val helloIO = rndUUID.flatMap(uuid => IO(println(s"Hello $uuid")))
-// helloIO: cats.effect.IO[Unit] = IO$619472405
+// helloIO: IO[Unit] = Bind(Delay(<function0>), <function1>)
 
 yolo(helloIO)
-// Hello 4eec1464-68fd-4ac0-a81e-22cfb865240b
+// Hello bad7189e-9af9-412f-8aa1-1fd5e19b6fbe
 ```
 
 ---
@@ -288,7 +282,7 @@ val jobTwo: IO[String] = IO(???)
 // Sequential execution
 jobOne.flatMap(i => jobTwo.map(s => (i, s)))
 // Also Sequential
-val result: IO[(Int, String)] = (jobOne, jobTwo).tupled
+val result1: IO[(Int, String)] = (jobOne, jobTwo).tupled
 
 // Concurrent execution (manually)
 for {
@@ -299,7 +293,7 @@ for {
 } yield (i, s)
 
 // Concurrent execution (higher level)
-val result: IO[(Int, String)] = (jobOne, jobTwo).parTupled
+val result2: IO[(Int, String)] = (jobOne, jobTwo).parTupled
 
 ```
 
@@ -455,12 +449,12 @@ oneStep()
 anotherStep()
 
 // IO
-def oneStep(): IO[Unit] = IO(println("one"))
-def anotherStep(): IO[Unit] = IO(println("two"))
+def oneStepIO(): IO[Unit] = IO(println("one"))
+def anotherStepIO(): IO[Unit] = IO(println("two"))
 
 for {
-  _ <- oneStep()
-  _ <- anotherStep()
+  _ <- oneStepIO()
+  _ <- anotherStepIO()
 } yield ()
 ```
 
