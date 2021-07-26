@@ -46,7 +46,7 @@ class: center, middle
 # Intro to Cats-Effect
 Gavin Bisesi • `@Daenyth`
 
-Principal Engineer @ Teikametrics
+@47Degrees
 
 ???
 
@@ -129,18 +129,19 @@ We use FP because we want a codebase that
 # Some setup
 ```scala mdoc:silent
 import cats._
-import cats.implicits._
+import cats.syntax.all._
 import cats.effect._
 import cats.effect.implicits._
 import scala.concurrent._
 import scala.concurrent.duration._
 
-import ExecutionContext.Implicits.global
-implicit val CS: ContextShift[IO] = IO.contextShift(global)
-implicit val timer: Timer[IO] = IO.timer(global)
+import ExecutionContext.Implicits.{global => futureEC}
 
-// Avoid this in real code!
-def yolo[A](description: IO[A]) = description.unsafeRunSync()
+import cats.effect.unsafe.implicits.{global => ioRuntime}
+
+// Custom `unsafeRunSync` for mdoc reasons
+import daenyth.talk.ce.MdocConsoleWorkaround._
+def yolo[A](description: IO[A]) = description.unsafeRunSyncWithRedirect()
 
 ```
 
@@ -158,10 +159,10 @@ A lot like scala `Future` at first glance
 - Don't use `Await` with `Future`; don't use `unsafeRun*` with `IO`
 
 ```scala mdoc
-val rndUUID: IO[UUID] = IO(UUID.randomUUID)
+val rndUUID: IO[UUID] = IO(UUID.randomUUID())
 val helloIO = rndUUID.flatMap(uuid => IO(println(s"Hello $uuid")))
 
-yolo(helloIO)
+yolo(helloIO >> helloIO)
 ```
 
 ---
@@ -172,6 +173,70 @@ yolo(helloIO)
 - Fail with a `Throwable`, or
 - Never complete
 
+```scala mdoc:compile-only
+def game = for {
+  _ <- IO.println("Guess a number")
+  n <- IO.readLine
+  _ <- if (n == 10) IO.println("Yay!")
+       else IO.raiseError(new Exception("wrong"))
+} yield ()
+
+def clock: IO[Unit] =
+  IO.sleep(1.minute) >>
+    Clock[IO].realTimeInstant.flatMap(IO.println) >>
+    clock
+```
+
+---
+# Fibers
+
+`IO` is based on the `Fiber` abstraction for low-level concurrency
+```scala
+// Simplified
+trait IO[A] {
+  def start: Fiber[A]
+}
+trait Fiber[A] {
+  def cancel: F[Unit]
+  def join: F[Outcome[F, Throwable, A]]
+}
+```
+
+A low level building block - you usually don't need to interact with them directly
+
+---
+# `IO` Execution
+
+- Can describe both concurrency and parallelism
+- Uses N:M green-threading
+  - Cheap: thousands of concurrent `Fiber`s are not a problem
+- Nonblocking asynchronous execution
+  - Run as as few as 1 thread (including Scala.JS)
+
+---
+# `IO` Concurrency
+
+Both low-level `Fibers` and high-level combinators
+- Forking: `io.start`, `Fiber`
+- Cancellation (low level): `Fiber#cancel`
+- Cancellation (high level):
+  - `IO.race(first, second)` - concurrently execute, return the winner and cancel the loser,
+  - `io.timeout(duration)` - fails with `TimeoutException` if not complete within `duration`
+  - `io.timeoutTo(duration, fallbackIO)` - Execute `fallbackIO` if `io` is not complete within `duration`
+- Nonblocking asynchronous sleep: `IO.sleep(duration)`
+- Concurrent execution: `start`, `listOfIO.parSequence`, `(ioA, ioB).parTupled`
+
+---
+# Resource management
+
+`Resource[IO, A]` describes the ability to initialize and release a resource
+- Similar to `try`/`finally`, but composable and referentially transparent
+  - `catch`/`finally` aren't transparent - they don't talk about *return values*.
+- Allows tracking resource lifetime at the type level
+  - Function accepting `Resource[IO, A]` parameter will acquire and release internally
+  - Function accepting `A` reuses the live value
+- Allows *guaranteed* finalization
+  - Whether the function given to `use` completes, fails, or is cancelled, the Resource is closed. Will not leak.
 
 ---
 # cats-effect typeclasses
@@ -183,7 +248,7 @@ This talk focus on `IO` and not the typeclasses
 ---
 # cats-effect typeclasses
 
-<img src="typeclasses-cheat-sheet.png">
+<img src="typeclasses-cheat-sheet.jpeg">
 
 ---
 # `IO` vs `Future` - Overview
@@ -199,6 +264,7 @@ Actions:
   - Thread shift on demand
   - Has utilities for introducing manual shifts for fairness
   - Benchmarks faster for most workloads
+  - Work-stealing runtime implementation inspired by Rust's Tokio
 - `Future` is optimized for fairness
   - Thread shift every single `map`/`flatMap` (hence implicit `ec`)
   - Can only be configured using a specialized `ec` argument
@@ -213,32 +279,10 @@ Actions:
   - More sophisticated abstractions built on top can be found in other libraries
 
 ---
-# `IO` Execution
-
-- Can describe both concurrency and parallelism
-- Uses N:M green-threading
-  - Cheap: thousands of concurrent `Fiber`s are not a problem
-- Nonblocking asynchronous execution
-  - Run as as few as 1 thread (including Scala.JS)
-
----
-# IO Concurrency
-
-Both low-level `Fibers` and high-level combinators
-- Forking: `io.start`, `Fiber`
-- Cancellation (low level): `Fiber#cancel`
-- Cancellation (high level): 
-  - `IO.race(first, second)` - concurrently execute, return the winner and cancel the loser,
-  - `io.timeout(duration)` - fails with `TimeoutException` if not complete within `duration`
-  - `io.timeoutTo(duration, fallbackIO)` - Execute `fallbackIO` if `io` is not complete within `duration`
-- Nonblocking asynchronous sleep: `Timer[IO].sleep(duration)`
-- Concurrent execution: `start`, `listOfIO.parSequence`, `(ioA, ioB).parTupled`
-
----
 # `IO` vs `Future` - Concurrency
 
 - Future has concurrency depending where you invoke functions
-- IO has concurrency via explicit combinators
+- IO has structured concurrency via explicit combinators
 
 ---
 # `IO` vs `Future` - Concurrency with Future
@@ -271,7 +315,7 @@ jobOne.flatMap(i => jobTwo.map(s => (i, s)))
 Impossible to tell - have to read the implementation details
 
 ---
-# `IO` vs `Future` - Concurrency with IO
+# `IO` vs `Future` - Concurrency with `IO`
 
 ```scala mdoc:silent:nest
 val jobOne: IO[Int] = IO(???)
@@ -296,30 +340,27 @@ val result2: IO[(Int, String)] = (jobOne, jobTwo).parTupled
 ```
 
 ---
-# Resource management
-
-`Resource[IO, A]` describes the ability to initialize and release a resource
-- Similar to `try`/`finally`, but composable and referentially transparent
-  - `catch`/`finally` aren't transparent - they don't talk about *return values*.
-- Allows tracking resource lifetime at the type level
-  - Function accepting `Resource[IO, A]` parameter will acquire and release internally
-  - Function accepting `A` reuses the live value
-- Allows *guaranteed* finalization
-  - Whether the function given to `use` completes, fails, or is cancelled, the Resource is closed. Will not leak.
-
----
-# A tour of cats-effect:
+# A tour of cats-effect
 
 - Utilities around Thread pools, controlling where and when things execute
-  - ContextShift - A "pure" ExecutionContext parallel
-  - Blocker - Used together with ContextShift to handle thread-blocking work.
-  - Timer - Get the time, delay execution until a time
+  - Temporal, Clock
 - Concurrency primitives
   - Semaphore - Has `N` permits, can acquire or release permits as needed. Acquire blocks until permits are available
-  - Ref - Lock-free concurrency-safe mutable shared memory
+  - Ref - Lock-free concurrency-safe mutable shared memory. A pure replacement for `var`
   - Deferred - A pure promise. Can complete with a value or get the completed value. Get blocks until complete.
-- `IOApp` - Whole "pure" applications
+  - And more!
 
+
+---
+# A tour of cats-effect
+
+- Dispatcher - Allows you to have controlled regions of `unsafeRun*` methods, for wrapping imperative libraries
+
+- `IOApp` - Whole "pure" applications
+  - Handles all the initialization, cancellation hooks, jvm actions so you can write your main method in `IO`
+
+- IORuntime
+  - An optimized work-stealing compute-based Execution context, bundled with an appropriate pool for thread-blocking work and a high-priority scheduler pool.
 
 ---
 # Thread pool management
@@ -340,12 +381,11 @@ val result2: IO[(Int, String)] = (jobOne, jobTwo).parTupled
 # Thread pool management - 3 Pool Model
 
 - Computation: Fixed size pool for cpu work
- - Used by `ContextShift[IO]`
+  - Normal `IO` values run here
 - Blocking IO: Cached thread pool for thread-blocking work
- - Wrapped with `Blocker` for explicit use 
+  - Wrap side-effecting code with `IO.blocking` or `IO.interruptible` (if you can `Thread.interrupt()` it)
 - Event Dispatcher: High-priority pool for scheduling and timers
- - Used by `Timer` to schedule sleeps
- - While transitioning away from `Futures` toward `IO`, we used the Computation pool (2 pool setup)
+ - Used to schedule asynchronous `sleep` calls
 
 ---
 # Blocking threads
@@ -354,59 +394,90 @@ Blocking threads should be avoided
 - Your cpu core is doing no work, waiting for a result while it could be computing something else
 - It reduces your bandwidth for concurrent work
 
-`Blocker` is a thin newtype around `ExecutionContext`
+Instead of `IO.apply`, use:
+- `IO.blocking` to wrap thread-blocking code
+- `IO.interruptible` if that code will behave well under `Thread.interrupt()`
 
-Used to clearly mark thread-blocking code in type signatures and prevent accidentally using the wrong thread pool
-```scala
-val blocker = Blocker.liftExecutionContext(global)
-val fos: java.io.FileOutputStream = ???
-val bytes: Array[Byte] = ???
-val writeFile: IO[Unit] = blocker.blockOn(IO(fos.write(bytes)))
+---
+# Blocking threads - `IO.blocking`
+- `IO.blocking` to wrap thread-blocking code
+
+```scala mdoc:silent
+def fos: java.io.FileOutputStream = ???
+def bytes: Array[Byte] = ???
+val writeFile: IO[Unit] = IO.blocking(fos.write(bytes))
+```
+
+---
+# Blocking Threads - `IO.interruptible`
+- `IO.interruptible` if that code will behave well under `Thread.interrupt()`
+
+```scala mdoc
+val tenMinutes = 10 * 60 * 1000
+def blockingTask = IO.interruptible(many = false)(Thread.sleep(tenMinutes))
+def printTime = Clock[IO].realTimeInstant.flatMap(t => IO.println(s"It is now $t"))
+yolo(for {
+  _ <- printTime
+  task <- blockingTask.start
+  _ <- IO.sleep(2.seconds)
+  _ <- task.cancel
+  _ <- printTime
+} yield ())
+
 ```
 
 ---
 # Time
 
-`Timer` and `Clock`
- - Nonblocking async sleep: `Timer[IO].sleep(duration)`
- - Get the time: `Clock[IO].realTime(MILLISECONDS)`
-   - `Clock` comes from `Timer`; `timer.clock` or via implicit `Clock[IO]`
+`Temporal` and `Clock`
+ - Nonblocking async sleep: `IO.sleep(duration)` (or `Temporal[IO].sleep(duration)`)
+ - Get the time: `Clock[IO].realTime`, `.realTimeInstant`
 
+```scala mdoc
+// Time since epoch
+yolo(Clock[IO].realTime)
+
+// Current Instant
+yolo(Clock[IO].realTimeInstant)
+
+// Monotonically incrementing clock
+yolo(Clock[IO].monotonic)
+```
 
 ---
 # Applications
 
 `IOApp` for your "main" classes
-- Provides an appropriate `ContextShift` and `Timer` for you
 
-```scala mdoc:silent
+```scala mdoc:compile-only
 object MyMain extends IOApp {
   def run(args: List[String]): IO[ExitCode] = {
     val myAppResource = 
       for {
-        _ <- Resource.liftF(IO(println("hello cats")))
+        _ <- Resource.eval(IO.println("hello cats"))
         db <- getDatabase
-        blocker <- Blocker[IO]
-        result <- Resource.liftF(myAppLogic(db, blocker))
-        _ <- Resource.liftF(IO(println(s"got $result")))
+        result <- Resource.eval(myAppLogic(db))
+        _ <- Resource.eval(IO.println(s"got $result"))
       } yield ()
     
-      myAppResource.use(_ => IO.pure(ExitCode.Success))
+      myAppResource.useForever.as(ExitCode.Success)
     }
 
 
   def getDatabase: Resource[IO, Database] = ???
-  def myAppLogic(db: Database, blocker: Blocker): IO[Int] = ???
+  def myAppLogic(db: Database): IO[Int] = ???
 } 
 ```
 
 ---
-# I already have an application!
+# But I already have an application!
 
 `IO` can be introduced to a codebase using `Future` or using its own "main" class.
 
 ---
 # Calling `Future` from `IO`
+
+Tip: Instantiating a `Future` value is a side effect, so it gets wrapped with `IO.apply`
 
 ```scala mdoc:silent
 def existingLogic(x: Int): Future[Int] = ???
@@ -421,11 +492,14 @@ def moreLogic(y: Int): IO[Int] =
 # Calling `IO` from `Future`
 
 ```scala mdoc:silent
+import cats.effect.unsafe
+
 trait MyTrait { def doWork: Future[Int] }
 
-new MyTrait {
+// NB: You can use `IORuntime.global`, but it's more flexible to take a parameter
+class MyTraitImpl(implicit ioRuntime: unsafe.IORuntime) extends MyTrait {
   override def doWork: Future[Int] =
-  ioLogic.map(_.length).unsafeToFuture()
+    ioLogic.map(_.length).unsafeToFuture()
   
   def ioLogic: IO[String] = ???
 }
@@ -459,30 +533,80 @@ for {
 ---
 # Converting to `IO` - `Future` code
 
+- `Future.apply` -> `IO.apply`
 - `Future.successful` -> `IO.pure`
 - `Future.failed` -> `IO.raiseError`
 - Implicit `Future` concurrency -> Explicit concurrency combinators
-- Side effects in `map` -> explicit effects with `IO(sideEffect())` + `flatMap`
-  - This is crucial
-- Imperative init/close methods -> `Resource`
+- Side effects in `map` -> explicit effects with `IO(sideEffect())` in `flatMap`
+
+---
+# Converting to `IO` - imperative code and mutation
+
+- `new` on a stateful class is stateful; wrap it in `IO`
+- Reading or writing to stateful classes is stateful; wrap it in `IO`
+- Imperative setup/close methods -> `Resource.make`
+- Use `Random[IO]` for pure, performant, concurrecy-safe randomness. Avoid `IO(Random.xyz())`
+- Use `Clock[IO]` for pure access to time.
+- Two sequential imperative lines -> two `IO` expressions combined with `flatMap`
+- "I need a `Foo` value but I have `IO[Foo]`, how do I get it out?
+  - You never "get it out"; use `flatMap`; `getFooIO.flatMap(foo => useFooIO(foo))`
+
+---
+IO Examples
+
+```scala mdoc:silent
+import cats.effect.std.Random
+
+val ioExample = for {
+  _ <- IO.println("Hello cats!") // Uses the `Console[IO]` capability
+
+  time <- Clock[IO].realTimeInstant
+  _ <- IO.println(s"It is now $time")
+
+  rnd <- Random.scalaUtilRandom[IO]
+  _ <- rnd.nextInt.flatMap(n => IO.println(s"Your lucky number is: $n"))
+
+} yield ()
+```
+
+```scala mdoc
+yolo(ioExample)
+```
 
 ---
 # Converting to `IO` - general tips
-- Sometimes you'll want to `import cats.implicits._` for generic combinators (eg `tupled`, `handleError`)
+- Sometimes you'll want to `import cats.syntax.all._` for generic combinators (eg `tupled`, `handleError`)
 - Sometimes you'll want `import cats.effect.implicits._` for effect methods (eg `parSequence`, `parTupled`, `parMapN`)
-- `IO` concurrency requires `ContextShift[IO]` implicit
-  - `IOApp` gives you one for free, otherwise `IO.contextShift(computeEC)`
-- Time-based methods including sleep require `Timer[IO]` implicit
-  - `IOApp` gives you one for free, otherwise `IO.timer(eventDispatcherEC)` (if you have one) or `IO.timer(computeEC)` if you don't
-- Try not to use a fork-join pool for `ContextShift` - you're leaving performance on the table by creating too many threads  
+- To imperative run an `IO`, you need either an `IORuntime` or create a `Dispatcher[IO]`.
+   - `IORuntime.global` is fine for production! It's not like `ExecutionContext.global`
+   - `Dispatcher[F]` is cheap and works with "capability trait" style (aka "tagless final")
 - Understand the risks when using `.unsafe*` methods on `IO`
 
 ---
 # Converting to `IO` - Common errors
+- Discarding an `IO` without flatMap-ing it
 - Side effects not wrapped `IO`, eg in `map`
 - Implicit `Future` concurrency
 - Use `-Ywarn-value-discard`!
-  - Optionally, set a lot of "save me from myself" flags at once using `sbt-tpolecat`
+  - Optionally but recommended, set a lot of "save me from myself" flags at once using `sbt-tpolecat`
+
+---
+# Common Errors - discarding your `IO`
+
+```scala mdoc:compile-only
+def doStuff: IO[Unit] = ???
+def oops = {
+   // This IO never executes!
+   IO.println("About to do stuff")
+   doStuff
+}
+
+def correct =
+  IO.println("About to do stuff")
+    .flatMap(_ => doStuff)
+```
+
+Tip: `fa.flatMap(_ => fb)` is so common it has an operator; `fa >> fb`
 
 ---
 # Converting to `IO` - Application structure
@@ -505,8 +629,8 @@ for {
 ---
 # Links and resources
 
-- [Tutorial](https://typelevel.org/cats-effect/tutorial/tutorial.html)
-- typelevel/cats-effect [Gitter chat](http://gitter.im/typelevel/cats-effect)
+- [Cats-Effect Concepts](https://typelevel.org/cats-effect/docs/concepts)
+- Typelevel [Discord chat](https://discord.gg/fChyzB4w)
 - [Documentation](https://typelevel.org/cats-effect/)
 - [Functional and Reactive Domain Modeling](https://www.manning.com/books/functional-and-reactive-domain-modeling)
   - Book that goes into application design, in a style that meshes very cleanly with cats-effect

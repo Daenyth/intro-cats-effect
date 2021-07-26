@@ -28,7 +28,7 @@ lazy val core = project
   .settings(moduleName := "intro-cats-effect-core")
   .settings(baseSettings: _*)
   .settings(
-    libraryDependencies ++= Seq("org.typelevel" %% "cats-effect" % "2.0.0")
+    libraryDependencies ++= Seq("org.typelevel" %% "cats-effect" % "3.2.0")
   )
 
 lazy val slides = project
