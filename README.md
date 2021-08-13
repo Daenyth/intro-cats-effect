@@ -10,6 +10,8 @@ At Teikametrics we adopted this library in 2018, and I'll discuss how we approac
 
 ## Video recording
 
+Note: This video is for the cats-effect 2 version of the talk. If you want those slides, you'll have to check out an older commit and build them yourself
+
 [On YouTube](https://www.youtube.com/watch?v=83pXEdCpY4A)
 
 ## Building
